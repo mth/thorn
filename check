@@ -1,0 +1,44 @@
+#!/usr/bin/perl
+
+use IPC::Open2;
+use strict;
+
+$| = 1;
+
+open TESTS, "<tests" or die "$!";
+
+my $pid = open2(\*READ, \*WRITE, "/usr/bin/ocaml", "anal.ml");
+my $failed = 0;
+
+while (<TESTS>) {
+	next if /^#/;
+	print WRITE $_;
+	chop;
+	print "$_ ";
+	my $response = <READ>;
+	my $expect = <TESTS>;
+	if ($expect eq "FAIL\n" and $response =~ /^(Error|Type mismatch): /) {
+		print " OK\n";
+		next
+	}
+	my %dict = ();
+	my $counter = 0;
+	my $repl = sub {
+		my $n = shift;
+		$dict{$n} = "'" . chr(++$counter + 96) unless $dict{$n};
+		$dict{$n}
+	};
+	$response =~ s/%\d+/$repl->($&)/sge;
+	if ($response eq $expect) {
+		print " OK\n";
+	} else {
+		print " FAIL\n";
+		++$failed
+	}
+}
+
+if ($failed) {
+	print "FAILED $failed test(s)\n"
+} else {
+	print "ALL OK.\n"
+}
