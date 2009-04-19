@@ -1,8 +1,10 @@
 (* ex: se sts=3 sw=3 expandtab: *)
 
 #load "parse.cmo"
+#load "exprparse.cmo"
 
 open Parse
+open Exprparse
 
 type join_type = Multi | Choice
 type tval = Nil | Val of pnode | Var of int | Join of tjoin
@@ -105,6 +107,20 @@ and flow ctx = function
    | Var x, t -> ()
    | x -> raise (Mismatch x)
 
+type op = ApplyOp | Op of string | BindOp of string
+
+let op_prio = function
+   | ApplyOp ->  1, Infix, ToRight
+   | Op "|"  ->  3, Listfix, ToLeft 
+   | BindOp _ -> 9, PreInfix 9, ToLeft
+   | Op ";"  -> 10, Infix, ToLeft
+   | Op _    ->  5, Postfix, ToLeft
+
+let op_eq a b =
+   match a, b with
+   | BindOp _, BindOp _ -> true
+   | _ -> a = b
+
 (* Converts source tree into type tree *)
 let rec type_tree (ctx : (string * tval) list) = function
    | VSym s ->
@@ -125,17 +141,29 @@ let rec type_tree (ctx : (string * tval) list) = function
          | a :: r -> scan (a :: al) r
          | [] -> Fun (mkvar (), type_tree ctx (VList l))
       in scan [] l
-   | VList (func :: args) ->
-      let rec apply func = function
-         | VSym "|" :: f :: args ->
-            (match apply (type_tree ctx f) args with
-            | Join { join_type = Multi; joined = j } ->
-              Join { join_type = Multi; joined = Array.append [|func|] j }
-            | v -> Join { join_type = Multi; joined = [|func; v|] })
-         | arg :: rest ->
-            apply (Apply (func, type_tree ctx arg)) rest
-         | [] -> func
-      in apply (type_tree ctx func) args
+   | VList expr ->
+      let p = new expr_parser op_prio ~op_eq:op_eq ApplyOp in
+      let rec add = function
+         | VSym s as sym ->
+            (match s.[0] with
+            | 'A' .. 'Z' | 'a' .. 'z' | '_' | '?' | '{' -> p#add sym
+            | _ -> p#add_op (Op s))
+         | token -> p#add token
+      in let rec eval = function
+         | OpNode op ->
+            (match op.op with
+            | ApplyOp ->
+               Apply (eval op.left, eval op.right)
+            | Op "|" ->
+               Join { join_type = Multi;
+                      joined = Array.map eval (Array.of_list (node_list op)) }
+            | Op s ->
+               Apply (type_tree ctx (VSym s), eval op.right)
+            | BindOp s -> failwith "Bind not implemented")
+         | OtherNode v -> type_tree ctx v
+         | _ -> failwith "WTF" in
+      List.iter add expr;
+      eval p#result
    | src -> Val src
 
 let catch_err action =

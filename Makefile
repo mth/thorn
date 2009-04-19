@@ -1,5 +1,8 @@
-check: parse.cmo
+check: parse.cmo exprparse.cmo
 	./check
 
-parse.cmo:
-	ocamlc -c parse.ml
+%.cmo: %.ml
+	ocamlc -c $<
+
+clean:
+	rm -f *.cmo *.cmi
