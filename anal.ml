@@ -13,8 +13,8 @@ type tval = Nil | Val of pnode | Var of int | Join of tjoin
 and tjoin = { join_type: join_type; joined: tval array }
 
 let show_join_type = function
-   | Multi -> "@"
-   | Choice -> "#"
+   | Multi -> " | "
+   | Choice -> " # "
 
 let allow_log = ref true
 let log s = if !allow_log then print_endline s
@@ -32,9 +32,8 @@ let rec show = function
    | Fun (a, r) -> "(" ^ show a ^ " -> " ^ show r ^ ")"
    | Apply (f, a) -> "(" ^ show f ^ " $ " ^ show a ^ ")"
    | Join j ->
-      let collect t l = (" " ^ show t) :: l in
-      let tl = Array.fold_right collect j.joined [] in
-      "(" ^ show_join_type j.join_type ^ String.concat "" tl ^ ")"
+      "(" ^ String.concat (show_join_type j.join_type)
+                          (Array.to_list (Array.map show j.joined)) ^ ")"
 
 let array_of_hash h =
    Array.of_list (Hashtbl.fold (fun k _ l -> k :: l) h [])

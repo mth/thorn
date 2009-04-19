@@ -28,7 +28,7 @@ let parse s =
       else get_str b (p + 1)
    and get_sym b p =
       match if p >= e then ' ' else s.[p] with
-      | '\000' .. ' ' | '(' | ')' | '{' | '}' | '.' | '"' | ':' | ';' ->
+      | '\000' .. ' ' | '(' | ')' | '{' | '}' | '.' | '"' | ':' | ';' | '|'->
          p, String.sub s b (p - b)
       | _ -> get_sym b (p + 1)
    and get_list ec p l =
