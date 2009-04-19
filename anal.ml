@@ -5,6 +5,7 @@
 
 open Parse
 open Exprparse
+open Printf
 
 type join_type = Multi | Choice
 type tval = Nil | Val of pnode | Var of int | Join of tjoin
@@ -113,7 +114,7 @@ let op_prio = function
    | ApplyOp ->  1, Infix, ToRight
    | Op "|"  ->  3, Listfix, ToLeft 
    | BindOp _ -> 9, PreInfix 9, ToLeft
-   | Op ";"  -> 10, Infix, ToLeft
+   | Op ";"  -> 10, Listfix, ToLeft
    | Op _    ->  5, Postfix, ToLeft
 
 let op_eq a b =
@@ -144,36 +145,52 @@ let rec type_tree (ctx : (string * tval) list) = function
    | VList expr ->
       let p = new expr_parser op_prio ~op_eq:op_eq ApplyOp in
       let rec add = function
-         | VSym s as sym ->
+         | VSym s :: VSym "=" :: rest ->
+            p#add_op (BindOp s); add rest
+         | VSym s as sym :: rest ->
             (match s.[0] with
             | 'A' .. 'Z' | 'a' .. 'z' | '_' | '?' | '{' -> p#add sym
-            | _ -> p#add_op (Op s))
-         | token -> p#add token
-      in let rec eval = function
-         | OpNode op ->
-            (match op.op with
-            | ApplyOp ->
-               Apply (eval op.left, eval op.right)
-            | Op "|" ->
-               Join { join_type = Multi;
-                      joined = Array.map eval (Array.of_list (node_list op)) }
-            | Op s ->
-               Apply (type_tree ctx (VSym s), eval op.right)
-            | BindOp s -> failwith "Bind not implemented")
-         | OtherNode v -> type_tree ctx v
-         | _ -> failwith "WTF" in
-      List.iter add expr;
-      eval p#result
+            | _ -> p#add_op (Op s));
+            add rest
+         | token :: rest ->
+            p#add token; add rest
+         | [] -> () in
+      add expr;
+      op_expr ctx p#result
    | src -> Val src
+and op_expr ctx = function
+   | OpNode op ->
+      (match op.op with
+      | ApplyOp ->
+         Apply (op_expr ctx op.left, op_expr ctx op.right)
+      | Op "|" ->
+         Join { join_type = Multi;
+                joined = Array.map (op_expr ctx)
+                                   (Array.of_list (node_list op)) }
+      | Op ";" ->
+         let rec seq ctx = function
+            | OpNode ({op = BindOp name; right = bind}) :: rest ->
+               seq ((name, op_expr ctx bind) :: ctx) rest
+            | [expr] -> op_expr ctx expr
+            | expr :: rest ->
+               let _ = op_expr ctx expr in seq ctx rest
+            | [] -> failwith "WTF[]"
+         in seq ctx (node_list op)
+      | Op s ->
+         Apply (type_tree ctx (VSym s), op_expr ctx op.right)
+      | BindOp s ->
+         failwith "Bind not expected")
+   | OtherNode v -> type_tree ctx v
+   | _ -> failwith "WTF"
 
 let catch_err action =
    try
       action ()
    with
       | Failure s ->
-         print_endline ("Error: " ^ s)
+         printf "Error: %s\n" s;
       | Mismatch (a, b) ->
-         print_endline ("Type mismatch: " ^ show a ^ " <> " ^ show b)
+         printf "Type mismatch: %s <> %s\n" (show a) (show b)
 ;;
 
 if Array.length Sys.argv <= 1 then begin
