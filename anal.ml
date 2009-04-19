@@ -101,7 +101,8 @@ and reduce_apply ctx a = function
       map_join true (reduce_apply ctx a) j
    | Join j when not (is_var a) ->
       first_join (reduce_apply ctx a) j
-   | Val f -> failwith (show_pt f ^ " is not a function")
+   | Val _ as f ->
+      raise (Mismatch (f, Fun (a, mkvar ())))
    | f -> Apply (f, a)
 and flow ctx = function
    | Val x, Val y when x = y -> ()
