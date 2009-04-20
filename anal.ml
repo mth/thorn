@@ -73,6 +73,7 @@ let is_var = function
    | _ -> false
 
 (* reduces type trees using abstract interpretation *)
+(* TODO: recursive branches should be ignored when possible. *)
 let rec reduce (ctx : (int * tval) list) t =
    let r = match t with
    | Var id as t ->
@@ -82,9 +83,13 @@ let rec reduce (ctx : (int * tval) list) t =
    | Fun (a, r) -> Fun (a, reduce ctx r)
    | Join j -> map_join true (reduce ctx) j
    | t -> t in
-   if !allow_log && t <> r then
-      log ("REDUCED " ^ show t ^ " INTO " ^ show r);
-   r
+   if t = r then
+      t
+   else begin
+      if !allow_log then
+         log ("REDUCED " ^ show t ^ " INTO " ^ show r);
+      r
+   end
 and reduce_apply ctx a = function
    | Fun (Var arg, body) ->
       reduce ((arg, a) :: ctx) body
@@ -170,7 +175,10 @@ and op_expr ctx = function
       | Op ";" ->
          let rec seq ctx = function
             | OpNode ({op = BindOp name; right = bind}) :: rest ->
-               seq ((name, op_expr ctx bind) :: ctx) rest
+               let bv = mkvar () in
+               let bctx = (name, bv) :: ctx in
+               Apply (Fun (bv, seq bctx rest), op_expr bctx bind)
+               (* seq ((name, op_expr ctx bind) :: ctx) rest *)
             | [expr] -> op_expr ctx expr
             | expr :: rest ->
                let _ = op_expr ctx expr in seq ctx rest
