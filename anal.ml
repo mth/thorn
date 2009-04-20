@@ -153,6 +153,7 @@ let rec type_tree (ctx : (string * tval) list) = function
          | VSym s :: VSym "=" :: rest ->
             p#add_op (BindOp s); add rest
          | VSym s as sym :: rest ->
+            (* TODO: being an operator should be decided by declaration *)
             (match s.[0] with
             | 'A' .. 'Z' | 'a' .. 'z' | '_' | '?' | '{' -> p#add sym
             | _ -> p#add_op (Op s));
