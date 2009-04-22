@@ -17,7 +17,15 @@ let show_join_type = function
    | Choice -> " # "
 
 let allow_log = ref true
-let log s = if !allow_log then print_endline s
+let log_indent = ref ""
+let log s = if !allow_log then print_endline (!log_indent ^ s)
+let log' s f =
+   log s;
+   let old = !log_indent in
+   log_indent := old ^ ".";
+   let res = f () in
+   log_indent := old;
+   res
 
 let var_counter = ref 0
 
@@ -72,23 +80,37 @@ let is_var = function
    | Var _ -> true
    | _ -> false
 
+type r_ctx = { r_fun: bool; r_scope: (int * tval) list }
+
+let empty_scope = { r_fun = false; r_scope = [] }
+
+let new_scope ctx id t =
+   { r_fun = ctx.r_fun; r_scope = (id, t) :: ctx.r_scope }
+
+let in_fun ctx =
+   { r_fun = true; r_scope = ctx.r_scope }
+
 (* reduces type trees using abstract interpretation *)
 (* TODO: recursive branches should be ignored when possible. *)
 (* TODO: memoize!!! *)
-let rec reduce (ctx : (int * tval) list) t =
+let rec reduce (ctx: r_ctx) t =
    let r = match t with
    | Var id as t ->
-      log ("var " ^ string_of_int id);
-      (try List.assoc id ctx with Not_found -> t)
+      log ("var %" ^ string_of_int id);
+      (try List.assoc id ctx.r_scope with Not_found -> t)
    | Apply (f, a) ->
-      log ("apply " ^ (show f) ^ " TO " ^ (show a));
-      reduce_apply ctx (reduce ctx a) (reduce ctx f)
+      log' (sprintf "apply %s TO %s [%b]" (show f) (show a) ctx.r_fun)
+         (fun _ ->
+            if ctx.r_fun then
+               Apply (reduce ctx f, reduce ctx a)
+            else
+               reduce_apply ctx (reduce ctx a) (reduce (in_fun ctx) f))
    | Fun (a, r) as f ->
-      log ("fun " ^ show f);
-      Fun (a, reduce ctx r)
+      log' ("fun " ^ show f ^ " " ^ string_of_bool ctx.r_fun)
+         (fun _ -> Fun (a, reduce ctx r))
    | Join j ->
-      log ("join " ^ show t);
-      map_join true (reduce ctx) j
+      log' ("join " ^ show t)
+         (fun _ -> map_join true (reduce ctx) j)
    | t -> t in
    if t = r then
       t
@@ -101,7 +123,7 @@ and reduce_apply ctx a = function
    | Fun (Var arg, body) ->
       log ("apply_ctx %" ^ string_of_int arg ^ " -> " ^ show body ^ " TO " ^
             show a);
-      reduce ((arg, a) :: ctx) body
+      reduce (new_scope ctx arg a) body
    | Fun ((Val _) as arg, body) ->
       log "apply_const";
       let apply a = flow ctx (a, arg); reduce ctx body in
@@ -115,8 +137,8 @@ and reduce_apply ctx a = function
       log "apply_choice";
       map_join true (reduce_apply ctx a) j
    | Join j when not (is_var a) ->
-      log "apply_multi";
-      first_join (reduce_apply ctx a) j
+      log (sprintf "apply_multi %b" ctx.r_fun);
+      (if ctx.r_fun then map_join false else first_join) (reduce_apply ctx a) j
    | Val _ as f ->
       raise (Mismatch (f, Fun (a, mkvar ())))
    | f -> Apply (f, a)
@@ -221,7 +243,7 @@ if Array.length Sys.argv <= 1 then begin
          catch_err (function _ ->
             var_counter := 0;
             let t = type_tree [] (parse (read_line ())) in
-            print_endline (show (reduce [] t));
+            print_endline (show (reduce empty_scope t));
             flush stdout)
       done
    with End_of_file -> ()
@@ -229,5 +251,5 @@ end else catch_err (function _ ->
    let pt = parse Sys.argv.(1) in
    log (show_pt pt);
    let t = type_tree [] pt in
-   let tr = reduce [] t in
+   let tr = reduce empty_scope t in
    log (show tr))
