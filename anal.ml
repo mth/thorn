@@ -74,14 +74,21 @@ let is_var = function
 
 (* reduces type trees using abstract interpretation *)
 (* TODO: recursive branches should be ignored when possible. *)
+(* TODO: memoize!!! *)
 let rec reduce (ctx : (int * tval) list) t =
    let r = match t with
    | Var id as t ->
+      log ("var " ^ string_of_int id);
       (try List.assoc id ctx with Not_found -> t)
    | Apply (f, a) ->
+      log ("apply " ^ (show f) ^ " TO " ^ (show a));
       reduce_apply ctx (reduce ctx a) (reduce ctx f)
-   | Fun (a, r) -> Fun (a, reduce ctx r)
-   | Join j -> map_join true (reduce ctx) j
+   | Fun (a, r) as f ->
+      log ("fun " ^ show f);
+      Fun (a, reduce ctx r)
+   | Join j ->
+      log ("join " ^ show t);
+      map_join true (reduce ctx) j
    | t -> t in
    if t = r then
       t
@@ -92,8 +99,11 @@ let rec reduce (ctx : (int * tval) list) t =
    end
 and reduce_apply ctx a = function
    | Fun (Var arg, body) ->
+      log ("apply_ctx %" ^ string_of_int arg ^ " -> " ^ show body ^ " TO " ^
+            show a);
       reduce ((arg, a) :: ctx) body
    | Fun ((Val _) as arg, body) ->
+      log "apply_const";
       let apply a = flow ctx (a, arg); reduce ctx body in
       (* In case of join try all variants *)
       (match a with
@@ -102,8 +112,10 @@ and reduce_apply ctx a = function
    | Fun (arg, _) ->
       failwith ("Bad argument: " ^ show arg)
    | Join ({join_type = Choice} as j) ->
+      log "apply_choice";
       map_join true (reduce_apply ctx a) j
    | Join j when not (is_var a) ->
+      log "apply_multi";
       first_join (reduce_apply ctx a) j
    | Val _ as f ->
       raise (Mismatch (f, Fun (a, mkvar ())))
